@@ -2,8 +2,8 @@ name: 코스피 아침 스크리너
 
 on:
   schedule:
-    # 평일(월~금) 07:30 KST = 전날 22:30 UTC (일~목)
-    - cron: "30 22 * * 0-4"
+    # 평일(월~금) 07:00 KST = 전날 22:00 UTC (일~목)
+    - cron: "0 22 * * 0-4"
   workflow_dispatch: {}
 
 permissions:
