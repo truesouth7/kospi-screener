@@ -1,0 +1,35 @@
+name: 코스피 아침 스크리너
+
+on:
+  schedule:
+    # 평일(월~금) 07:30 KST = 전날 22:30 UTC (일~목)
+    - cron: "30 22 * * 0-4"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 패키지 설치
+        run: pip install requests pykrx
+
+      - name: 돌파 종목 계산
+        run: python screen.py
+
+      - name: 결과 저장
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/
+          git diff --cached --quiet || git commit -m "돌파 종목 $(date -u +%F)"
+          git push
