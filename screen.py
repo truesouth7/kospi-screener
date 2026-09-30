@@ -6,7 +6,7 @@ results/latest.json 과 results/history.json 에 저장한다.
 항목을 늘리려면: 아래 SCREENS 에 {id, name, fn} 하나를 추가하면 된다.
 fn(bars, i) 는 i번째 거래일이 조건에 맞으면 표에 보일 값(dict)을, 아니면 None 을 돌려준다.
 
-데이터: 네이버 금융 일봉 (실패 시 pykrx 로 대체)
+데이터: KRX(한국거래소) 정규시장 일봉 — 넥스트레이드 제외. KRX 로그인이 안 되면 네이버 일봉으로 대체(넥스트레이드 포함 가능)
 """
 from __future__ import annotations
 
@@ -182,22 +182,31 @@ def via_naver():
     return out, "naver", fails
 
 
-# ================================================================ pykrx (대체)
-def via_pykrx():
+# ================================================================ KRX (기본)
+def via_krx():
+    """KRX(한국거래소) 정규시장 일봉. 넥스트레이드 가격은 섞이지 않는다.
+    KRX 정보데이터시스템 로그인이 필요: 환경변수 KRX_ID, KRX_PW (GitHub Secrets)."""
+    if not (os.getenv("KRX_ID") and os.getenv("KRX_PW")):
+        raise RuntimeError("KRX_ID / KRX_PW 가 설정되지 않음")
     from pykrx import stock
-    today = datetime.now(KST).date()
-    d = today - timedelta(days=1)
-    frames = []
+    now = datetime.now(KST)
+    today = now.date()
+    d = today if now.hour >= 16 else today - timedelta(days=1)
+    frames, tried = [], 0
     while len(frames) < BARS - 10 and (today - d).days < 460:
-        ds = d.strftime("%Y%m%d")
-        dfs = {m: stock.get_market_ohlcv(ds, market=m) for m in MARKETS}
-        if all(df is not None and len(df) and df["종가"].sum() > 0 for df in dfs.values()):
-            frames.append((d.isoformat(), dfs))
+        if d.weekday() < 5:
+            tried += 1
+            ds = d.strftime("%Y%m%d")
+            dfs = {m: stock.get_market_ohlcv(ds, market=m) for m in MARKETS}
+            if all(df is not None and len(df) and df["종가"].sum() > 0 for df in dfs.values()):
+                frames.append((d.isoformat(), dfs))
+            elif tried >= 10 and not frames:
+                raise RuntimeError("KRX 에서 시세를 받지 못함 (로그인 정보를 확인하세요)")
+            time.sleep(0.15)
         d -= timedelta(days=1)
-        time.sleep(0.2)
     frames.reverse()
     if len(frames) < 240:
-        raise RuntimeError("pykrx 로 충분한 거래일을 받지 못함")
+        raise RuntimeError(f"KRX 에서 충분한 거래일을 받지 못함: {len(frames)}일")
     all_bars, market_of = {}, {}
     for date, dfs in frames:
         for m, df in dfs.items():
@@ -206,9 +215,14 @@ def via_pykrx():
                 all_bars.setdefault(code, []).append({
                     "date": date, "open": float(row["시가"]), "high": float(row["고가"]),
                     "low": float(row["저가"]), "close": float(row["종가"]), "volume": int(row["거래량"])})
-    out = {code: ({"code": code, "name": stock.get_market_ticker_name(code), "market": market_of[code]}, bars)
+    def name_of(code):
+        try:
+            return stock.get_market_ticker_name(code)
+        except Exception:
+            return code
+    out = {code: ({"code": code, "name": name_of(code), "market": market_of[code]}, bars)
            for code, bars in all_bars.items()}
-    return out, "pykrx", 0
+    return out, "krx", 0
 
 
 # ================================================================ 실행
@@ -275,7 +289,7 @@ def run(all_bars, source, fails):
 
 def main():
     errors = []
-    for fn in (via_naver, via_pykrx):
+    for fn in (via_krx, via_naver):
         try:
             data = fn()
             break
