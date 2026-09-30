@@ -118,6 +118,7 @@ def bb_upper(bars, i):
 #  매도: 매수 이후 주봉 RSI(14)가 70 아래로 내려올 때
 #  보유: 매수 신호 이후 아직 매도 신호가 나오지 않은 상태
 SK_N, SK_K, SK_VOLX, SK_VOLN, SK_RSI_N, SK_RSI_LV = 12, 2.0, 2.0, 20, 14, 70.0
+SK_HOLD_WEEKS = 12
 
 
 def weekly(bars):
@@ -195,6 +196,9 @@ def sekik_weekly(bars, i):
         # state 는 마지막 주(k = n-1)의 상태만 의미가 있다
 
     if state is None or state["k"] != n - 1:
+        return None
+    # 보유 중은 매수 후 SK_HOLD_WEEKS 주 이내만 표시 (RSI 70을 못 넘은 종목은 매도 신호가 나오지 않아 계속 쌓이므로)
+    if state["signal"] == "hold" and (n - 1) - state["entry"] > SK_HOLD_WEEKS:
         return None
     last, e = wk[-1], wk[state["entry"]]
     avgv = sum(vols[-1 - SK_VOLN:-1]) / SK_VOLN
