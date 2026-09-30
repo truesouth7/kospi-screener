@@ -3,7 +3,7 @@
 매 거래일 아침 실행하면 직전 거래일까지의 일봉으로 여러 조건(항목)을 계산해
 results/latest.json 과 results/history.json 에 저장한다.
 
-항목을 늘리려면: 아래 SCREENS 에 {id, name, fn} 하나를 추가하면 된다.
+항목을 늘리려면: 아래 SCREENS 에 {id, name, fn, rule} 하나를 추가하면 된다.
 fn(bars, i) 는 i번째 거래일이 조건에 맞으면 표에 보일 값(dict)을, 아니면 None 을 돌려준다.
 
 데이터: KRX(한국거래소) 정규시장 일봉 — 넥스트레이드 제외. KRX 로그인이 안 되면 네이버 일봉으로 대체(넥스트레이드 포함 가능)
@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 MARKETS = ("KOSPI", "KOSDAQ")
-BARS = 300          # 받아올 일봉 개수 (52주 = 250거래일 + 여유)
+BARS = 360          # 받아올 일봉 개수 (52주 신고가 + 주봉 지표 여유, 약 72주)
 HISTORY_DAYS = 20    # history.json 에 남길 최근 거래일 수
 KST = timezone(timedelta(hours=9))
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -112,11 +112,119 @@ def bb_upper(bars, i):
     return row
 
 
+# ================================================================ 항목 3: 박세익 주봉 볼린저 매매
+# 출처: 체슬리TV "박세익 전무가 처음 공개하는 필살기 매매 기법" (2025-05-31)
+#  매수: 주봉 종가가 볼린저밴드(12, 2) 상단을 새로 돌파 + 주간 거래량 ≥ 직전 20주 평균 × 2
+#  매도: 매수 이후 주봉 RSI(14)가 70 아래로 내려올 때
+#  보유: 매수 신호 이후 아직 매도 신호가 나오지 않은 상태
+SK_N, SK_K, SK_VOLX, SK_VOLN, SK_RSI_N, SK_RSI_LV = 12, 2.0, 2.0, 20, 14, 70.0
+
+
+def weekly(bars):
+    """일봉 → 주봉 (ISO 주 단위). 진행 중인 이번 주도 포함."""
+    weeks, key = [], None
+    for b in bars:
+        y, w, _ = datetime.strptime(b["date"], "%Y-%m-%d").isocalendar()
+        if (y, w) != key:
+            key = (y, w)
+            weeks.append({"date": b["date"], "start": b["date"], "open": b["open"], "high": b["high"],
+                          "low": b["low"], "close": b["close"], "volume": b["volume"]})
+        else:
+            wk = weeks[-1]
+            wk["date"] = b["date"]
+            wk["high"] = max(wk["high"], b["high"])
+            wk["low"] = min(wk["low"], b["low"])
+            wk["close"] = b["close"]
+            wk["volume"] += b["volume"]
+    return weeks
+
+
+def rsi_series(closes, n=SK_RSI_N):
+    """Wilder RSI. 앞쪽 n개는 None."""
+    out = [None] * len(closes)
+    if len(closes) <= n:
+        return out
+    gains = [max(closes[k] - closes[k - 1], 0) for k in range(1, len(closes))]
+    losses = [max(closes[k - 1] - closes[k], 0) for k in range(1, len(closes))]
+    ag, al = sum(gains[:n]) / n, sum(losses[:n]) / n
+    def val(g, l):
+        return 100.0 if l == 0 else 100 - 100 / (1 + g / l)
+    out[n] = val(ag, al)
+    for k in range(n + 1, len(closes)):
+        ag = (ag * (n - 1) + gains[k - 1]) / n
+        al = (al * (n - 1) + losses[k - 1]) / n
+        out[k] = val(ag, al)
+    return out
+
+
+def sekik_weekly(bars, i):
+    """i번째 거래일까지의 주봉으로 매수/매도/보유 상태를 계산."""
+    if bars[i]["volume"] <= 0:
+        return None
+    wk = weekly(bars[:i + 1])
+    n = len(wk)
+    if n < SK_VOLN + 2:
+        return None
+    closes = [w["close"] for w in wk]
+    vols = [w["volume"] for w in wk]
+    rsi = rsi_series(closes)
+    ups = [None] * n
+    for k in range(SK_N - 1, n):
+        win = closes[k + 1 - SK_N:k + 1]
+        m = sum(win) / SK_N
+        ups[k] = m + SK_K * math.sqrt(sum((x - m) ** 2 for x in win) / SK_N)
+
+    holding, entry, state = False, None, None
+    start = max(SK_N, SK_VOLN, SK_RSI_N + 1)
+    for k in range(start, n):
+        avgv = sum(vols[k - SK_VOLN:k]) / SK_VOLN
+        vr = vols[k] / avgv if avgv else 0
+        signal = None
+        if not holding:
+            if closes[k] > ups[k] and closes[k - 1] <= ups[k - 1] and vr >= SK_VOLX:
+                holding, entry, signal = True, k, "buy"
+        elif rsi[k - 1] is not None and rsi[k] is not None and rsi[k - 1] >= SK_RSI_LV > rsi[k]:
+            holding, signal = False, "sell"
+            state = {"signal": "sell", "k": k, "entry": entry}
+        if signal == "buy":
+            state = {"signal": "buy", "k": k, "entry": entry}
+        elif holding and signal is None:
+            state = {"signal": "hold", "k": k, "entry": entry}
+        elif not holding and signal is None:
+            state = None
+        # state 는 마지막 주(k = n-1)의 상태만 의미가 있다
+
+    if state is None or state["k"] != n - 1:
+        return None
+    last, e = wk[-1], wk[state["entry"]]
+    avgv = sum(vols[-1 - SK_VOLN:-1]) / SK_VOLN
+    row = {
+        "signal": state["signal"],
+        "close": last["close"],
+        "changePct": round((closes[-1] / closes[-2] - 1) * 100, 2) if closes[-2] else None,  # 주간 등락률
+        "upper": round(ups[-1], 1),
+        "abovePct": round((closes[-1] / ups[-1] - 1) * 100, 2),
+        "rsi": round(rsi[-1], 1) if rsi[-1] is not None else None,
+        "volume": vols[-1],
+        "volRatio": round(vols[-1] / avgv, 2) if avgv else None,
+        "tradeValue": int(sum(b["close"] * b["volume"] for b in bars[:i + 1] if b["date"] >= last["start"])),
+        "entryWeek": e["start"],
+        "entryPrice": e["close"],
+        "sinceEntryPct": round((last["close"] / e["close"] - 1) * 100, 2) if e["close"] else None,
+        "weeksHeld": (n - 1) - state["entry"],
+        "weekStart": last["start"],
+        "weekDone": datetime.strptime(last["date"], "%Y-%m-%d").weekday() == 4,
+    }
+    return row
+
+
 SCREENS = [
     {"id": "high52", "name": "52주 신고가", "fn": high52,
      "rule": "당일 고가 > 직전 52주(364일) 최고가"},
     {"id": "bb_upper", "name": "볼린저밴드 상단 돌파", "fn": bb_upper,
      "rule": "20일·2σ, 전일 종가 ≤ 상단 → 당일 종가 > 상단"},
+    {"id": "sekik_bb", "name": "박세익 주봉 볼린저", "fn": sekik_weekly,
+     "rule": "주봉 BB(12,2) 상단 돌파 + 거래량 20주 평균×2 매수 / RSI(14) 70 하향 매도"},
 ]
 
 
@@ -193,7 +301,7 @@ def via_krx():
     today = now.date()
     d = today if now.hour >= 16 else today - timedelta(days=1)
     frames, tried = [], 0
-    while len(frames) < BARS - 10 and (today - d).days < 460:
+    while len(frames) < BARS - 10 and (today - d).days < 560:
         if d.weekday() < 5:
             tried += 1
             ds = d.strftime("%Y%m%d")
@@ -270,6 +378,9 @@ def run(all_bars, source, fails):
             days.append({"date": d, "count": len(items), "universe": sum(universe[d].values()),
                          "universeByMarket": universe[d],
                          "countByMarket": {m: sum(1 for r in items if r["market"] == m) for m in MARKETS},
+                         **({"countBySignal": {g: sum(1 for r in items if r.get("signal") == g)
+                                               for g in ("buy", "sell", "hold")}}
+                            if any("signal" in r for r in items) else {}),
                          "items": items})
         screens_out[s["id"]] = {"name": s["name"], "rule": s["rule"], "days": days}
 
