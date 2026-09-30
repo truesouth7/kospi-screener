@@ -1,0 +1,209 @@
+{
+ "generatedAt": "2026-09-30T20:33:38+09:00",
+ "source": "naver",
+ "failedTickers": 0,
+ "screens": {
+  "high52": {
+   "name": "52주 신고가",
+   "rule": "당일 고가 > 직전 250거래일 최고가",
+   "date": "2026-09-29",
+   "count": 1,
+   "universe": 944,
+   "items": [
+    {
+     "code": "029460",
+     "name": "케이씨",
+     "close": 46300.0,
+     "changePct": 6.81,
+     "volume": 50543,
+     "volRatio": 1.41,
+     "tradeValue": 2340140900,
+     "high": 46900.0,
+     "prevHigh": 45000.0,
+     "breakPct": 4.22,
+     "closeNewHigh": true,
+     "daysSincePrevHigh": 4,
+     "closeToHighPct": -1.28
+    }
+   ]
+  },
+  "bb_upper": {
+   "name": "볼린저밴드 상단 돌파",
+   "rule": "20일·2σ, 전일 종가 ≤ 상단 → 당일 종가 > 상단",
+   "date": "2026-09-29",
+   "count": 13,
+   "universe": 944,
+   "items": [
+    {
+     "code": "009150",
+     "name": "삼성전기",
+     "close": 1550000.0,
+     "changePct": 3.96,
+     "volume": 585326,
+     "volRatio": 0.97,
+     "tradeValue": 907255300000,
+     "upper": 1533551.6,
+     "middle": 1414550.0,
+     "abovePct": 1.07,
+     "bandWidthPct": 16.83
+    },
+    {
+     "code": "007660",
+     "name": "이수페타시스",
+     "close": 119000.0,
+     "changePct": 6.25,
+     "volume": 597015,
+     "volRatio": 0.92,
+     "tradeValue": 71044785000,
+     "upper": 118944.4,
+     "middle": 110690.0,
+     "abovePct": 0.05,
+     "bandWidthPct": 14.91
+    },
+    {
+     "code": "457190",
+     "name": "이수스페셜티케미컬",
+     "close": 72000.0,
+     "changePct": 11.8,
+     "volume": 428688,
+     "volRatio": 3.41,
+     "tradeValue": 30865536000,
+     "upper": 70415.3,
+     "middle": 65565.0,
+     "abovePct": 2.25,
+     "bandWidthPct": 14.8
+    },
+    {
+     "code": "003570",
+     "name": "SNT다이내믹스",
+     "close": 30700.0,
+     "changePct": 4.07,
+     "volume": 782364,
+     "volRatio": 16.49,
+     "tradeValue": 24018574800,
+     "upper": 30219.3,
+     "middle": 28427.5,
+     "abovePct": 1.59,
+     "bandWidthPct": 12.61
+    },
+    {
+     "code": "001040",
+     "name": "CJ",
+     "close": 136500.0,
+     "changePct": 2.4,
+     "volume": 132416,
+     "volRatio": 1.17,
+     "tradeValue": 18074784000,
+     "upper": 135072.0,
+     "middle": 130695.0,
+     "abovePct": 1.06,
+     "bandWidthPct": 6.7
+    },
+    {
+     "code": "281820",
+     "name": "케이씨텍",
+     "close": 88800.0,
+     "changePct": 6.86,
+     "volume": 135924,
+     "volRatio": 0.7,
+     "tradeValue": 12070051200,
+     "upper": 86995.5,
+     "middle": 72190.0,
+     "abovePct": 2.07,
+     "bandWidthPct": 41.02
+    },
+    {
+     "code": "195870",
+     "name": "해성디에스",
+     "close": 63400.0,
+     "changePct": 6.38,
+     "volume": 184410,
+     "volRatio": 1.26,
+     "tradeValue": 11691594000,
+     "upper": 62760.1,
+     "middle": 53880.0,
+     "abovePct": 1.02,
+     "bandWidthPct": 32.96
+    },
+    {
+     "code": "029460",
+     "name": "케이씨",
+     "close": 46300.0,
+     "changePct": 6.81,
+     "volume": 50543,
+     "volRatio": 1.41,
+     "tradeValue": 2340140900,
+     "upper": 45461.4,
+     "middle": 40377.5,
+     "abovePct": 1.84,
+     "bandWidthPct": 25.18
+    },
+    {
+     "code": "00104K",
+     "name": "CJ4우(전환)",
+     "close": 133900.0,
+     "changePct": 2.45,
+     "volume": 5135,
+     "volRatio": 0.74,
+     "tradeValue": 687576500,
+     "upper": 132499.0,
+     "middle": 128430.0,
+     "abovePct": 1.06,
+     "bandWidthPct": 6.34
+    },
+    {
+     "code": "330590",
+     "name": "롯데리츠",
+     "close": 4155.0,
+     "changePct": 1.34,
+     "volume": 155240,
+     "volRatio": 1.1,
+     "tradeValue": 645022200,
+     "upper": 4149.7,
+     "middle": 3970.5,
+     "abovePct": 0.13,
+     "bandWidthPct": 9.03
+    },
+    {
+     "code": "025000",
+     "name": "KPX케미칼",
+     "close": 57700.0,
+     "changePct": 0.7,
+     "volume": 4183,
+     "volRatio": 0.89,
+     "tradeValue": 241359100,
+     "upper": 57695.1,
+     "middle": 55455.0,
+     "abovePct": 0.01,
+     "bandWidthPct": 8.08
+    },
+    {
+     "code": "084670",
+     "name": "동양고속",
+     "close": 25200.0,
+     "changePct": 5.0,
+     "volume": 7821,
+     "volRatio": 0.83,
+     "tradeValue": 197089200,
+     "upper": 25194.6,
+     "middle": 24080.0,
+     "abovePct": 0.02,
+     "bandWidthPct": 9.26
+    },
+    {
+     "code": "010040",
+     "name": "한국내화",
+     "close": 1679.0,
+     "changePct": 2.32,
+     "volume": 44075,
+     "volRatio": 1.75,
+     "tradeValue": 74001925,
+     "upper": 1674.8,
+     "middle": 1607.1,
+     "abovePct": 0.25,
+     "bandWidthPct": 8.42
+    }
+   ]
+  }
+ }
+}
