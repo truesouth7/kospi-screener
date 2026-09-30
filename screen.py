@@ -57,7 +57,7 @@ def high52(bars, i):
     highs = [b["high"] for b in window]
     prior = max(highs)
     h = bars[i]["high"]
-    if h <= prior:
+    if prior <= 0 or h <= prior:
         return None
     # 직전 고점이 찍힌 뒤 며칠 만의 경신인지 (길수록 오래 눌려 있던 고점을 뚫은 것)
     last_idx = max(j for j, x in enumerate(highs) if x == prior)
@@ -200,6 +200,13 @@ def via_pykrx():
 
 
 # ================================================================ 실행
+def clean_bar(b):
+    """거래정지일 등 시가·고가·저가가 0으로 오는 봉은 종가로 채운다."""
+    c = b["close"]
+    o, h, l = (x if x > 0 else c for x in (b["open"], b["high"], b["low"]))
+    return {**b, "open": o, "high": max(h, c), "low": min(l, c) if l > 0 else c}
+
+
 def run(all_bars, source, fails):
     n = len(all_bars)
     today_kst = datetime.now(KST).date().isoformat()
@@ -211,7 +218,8 @@ def run(all_bars, source, fails):
     hits = {s["id"]: {d: [] for d in recent} for s in SCREENS}
     universe = {d: 0 for d in recent}
     for code, (meta, bars) in all_bars.items():
-        bars = sorted((b for b in bars if b["date"] < today_kst), key=lambda b: b["date"])
+        bars = sorted((clean_bar(b) for b in bars if b["date"] < today_kst and b["close"] > 0),
+                      key=lambda b: b["date"])
         for i, b in enumerate(bars):
             if b["date"] not in recent_set or i == 0:
                 continue
