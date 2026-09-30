@@ -1,4 +1,4 @@
-"""코스피 아침 스크리너.
+"""코스피·코스닥 아침 스크리너.
 
 매 거래일 아침 실행하면 직전 거래일까지의 일봉으로 여러 조건(항목)을 계산해
 results/latest.json 과 results/history.json 에 저장한다.
@@ -22,7 +22,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-BARS = 300           # 받아올 일봉 개수 (52주 = 250거래일 + 여유)
+MARKETS = ("KOSPI", "KOSDAQ")
+BARS = 300          # 받아올 일봉 개수 (52주 = 250거래일 + 여유)
 HISTORY_DAYS = 20    # history.json 에 남길 최근 거래일 수
 KST = timezone(timedelta(hours=9))
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -122,20 +123,25 @@ SCREENS = [
 # ================================================================ 네이버
 def naver_universe() -> list[dict]:
     items, page = [], 1
-    while True:
-        r = requests.get("https://m.stock.naver.com/api/stocks/marketValue/KOSPI",
-                         params={"page": page, "pageSize": 100}, headers=UA, timeout=20)
-        r.raise_for_status()
-        js = r.json()
-        stocks = js.get("stocks", [])
-        for s in stocks:
-            if str(s.get("stockEndType", "")).lower() in ("etf", "etn"):
-                continue
-            items.append({"code": s["itemCode"], "name": s["stockName"]})
-        if not stocks or page * 100 >= js.get("totalCount", 0):
-            break
-        page += 1
-        time.sleep(0.2)
+    for market in MARKETS:
+        page = 1
+        while True:
+            r = requests.get(f"https://m.stock.naver.com/api/stocks/marketValue/{market}",
+                             params={"page": page, "pageSize": 100}, headers=UA, timeout=20)
+            r.raise_for_status()
+            js = r.json()
+            stocks = js.get("stocks", [])
+            for s in stocks:
+                if str(s.get("stockEndType", "")).lower() in ("etf", "etn"):
+                    continue
+                items.append({"code": s["itemCode"], "name": s["stockName"], "market": market})
+            if not stocks or page * 100 >= js.get("totalCount", 0):
+                break
+            page += 1
+            time.sleep(0.2)
+        n = sum(1 for x in items if x["market"] == market)
+        if n < 300:
+            raise RuntimeError(f"{market} 종목 목록이 너무 적음: {n}")
     return items
 
 
@@ -154,8 +160,6 @@ def naver_bars(code: str) -> list[dict]:
 
 def via_naver():
     uni = naver_universe()
-    if len(uni) < 300:
-        raise RuntimeError(f"종목 목록이 너무 적음: {len(uni)}")
     out, fails = {}, 0
 
     def job(s):
@@ -166,7 +170,7 @@ def via_naver():
                 time.sleep(1 + attempt)
         return s, None
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=10) as ex:
         for fut in as_completed([ex.submit(job, s) for s in uni]):
             s, bars = fut.result()
             if bars:
@@ -185,21 +189,24 @@ def via_pykrx():
     d = today - timedelta(days=1)
     frames = []
     while len(frames) < BARS - 10 and (today - d).days < 460:
-        df = stock.get_market_ohlcv(d.strftime("%Y%m%d"), market="KOSPI")
-        if df is not None and len(df) and df["종가"].sum() > 0:
-            frames.append((d.isoformat(), df))
+        ds = d.strftime("%Y%m%d")
+        dfs = {m: stock.get_market_ohlcv(ds, market=m) for m in MARKETS}
+        if all(df is not None and len(df) and df["종가"].sum() > 0 for df in dfs.values()):
+            frames.append((d.isoformat(), dfs))
         d -= timedelta(days=1)
         time.sleep(0.2)
     frames.reverse()
     if len(frames) < 240:
         raise RuntimeError("pykrx 로 충분한 거래일을 받지 못함")
-    all_bars = {}
-    for date, df in frames:
-        for code, row in df.iterrows():
-            all_bars.setdefault(code, []).append({
-                "date": date, "open": float(row["시가"]), "high": float(row["고가"]),
-                "low": float(row["저가"]), "close": float(row["종가"]), "volume": int(row["거래량"])})
-    out = {code: ({"code": code, "name": stock.get_market_ticker_name(code)}, bars)
+    all_bars, market_of = {}, {}
+    for date, dfs in frames:
+        for m, df in dfs.items():
+            for code, row in df.iterrows():
+                market_of[code] = m
+                all_bars.setdefault(code, []).append({
+                    "date": date, "open": float(row["시가"]), "high": float(row["고가"]),
+                    "low": float(row["저가"]), "close": float(row["종가"]), "volume": int(row["거래량"])})
+    out = {code: ({"code": code, "name": stock.get_market_ticker_name(code), "market": market_of[code]}, bars)
            for code, bars in all_bars.items()}
     return out, "pykrx", 0
 
@@ -226,18 +233,19 @@ def run(all_bars, source, fails):
     recent_set = set(recent)
 
     hits = {s["id"]: {d: [] for d in recent} for s in SCREENS}
-    universe = {d: 0 for d in recent}
+    universe = {d: {m: 0 for m in MARKETS} for d in recent}
     for code, (meta, bars) in all_bars.items():
+        mkt = meta.get("market", "KOSPI")
         bars = sorted((clean_bar(b) for b in bars if b["date"] < today_kst and b["close"] > 0),
                       key=lambda b: b["date"])
         for i, b in enumerate(bars):
             if b["date"] not in recent_set or i == 0:
                 continue
-            universe[b["date"]] += 1
+            universe[b["date"]][mkt] = universe[b["date"]].get(mkt, 0) + 1
             for s in SCREENS:
                 row = s["fn"](bars, i)
                 if row:
-                    hits[s["id"]][b["date"]].append({"code": code, "name": meta["name"], **row})
+                    hits[s["id"]][b["date"]].append({"code": code, "name": meta["name"], "market": mkt, **row})
 
     now = datetime.now(KST).isoformat(timespec="seconds")
     screens_out = {}
@@ -245,7 +253,10 @@ def run(all_bars, source, fails):
         days = []
         for d in recent:
             items = sorted(hits[s["id"]][d], key=lambda r: r["tradeValue"], reverse=True)
-            days.append({"date": d, "count": len(items), "universe": universe[d], "items": items})
+            days.append({"date": d, "count": len(items), "universe": sum(universe[d].values()),
+                         "universeByMarket": universe[d],
+                         "countByMarket": {m: sum(1 for r in items if r["market"] == m) for m in MARKETS},
+                         "items": items})
         screens_out[s["id"]] = {"name": s["name"], "rule": s["rule"], "days": days}
 
     os.makedirs(OUT_DIR, exist_ok=True)
