@@ -46,22 +46,27 @@ def common(bars, i):
 
 
 # ================================================================ 항목 1: 52주 신고가
-HIGH_WINDOW = 250  # 52주 ≈ 250거래일
+WEEKS52 = 364  # 52주 = 364일 (달력 기준)
 
 
 def high52(bars, i):
-    """당일 고가가 직전 250거래일(당일 제외) 최고가를 넘어선 종목."""
-    if i < HIGH_WINDOW or bars[i]["volume"] <= 0:
+    """당일 고가가 직전 52주(기준일 364일 전 ~ 전일) 최고가를 넘어선 종목.
+    상장(또는 데이터 시작)이 52주가 안 된 종목은 비교할 수 없어 제외."""
+    if i < 1 or bars[i]["volume"] <= 0:
         return None
-    window = bars[i - HIGH_WINDOW:i]
+    d = datetime.strptime(bars[i]["date"], "%Y-%m-%d").date()
+    cutoff = (d - timedelta(days=WEEKS52)).isoformat()
+    if bars[0]["date"] > cutoff:
+        return None
+    window = [b for b in bars[:i] if b["date"] >= cutoff]
     highs = [b["high"] for b in window]
     prior = max(highs)
     h = bars[i]["high"]
     if prior <= 0 or h <= prior:
         return None
-    # 직전 고점이 찍힌 뒤 며칠 만의 경신인지 (길수록 오래 눌려 있던 고점을 뚫은 것)
+    # 직전 고점이 찍힌 뒤 몇 거래일 만의 경신인지 (길수록 오래 눌려 있던 고점을 뚫은 것)
     last_idx = max(j for j, x in enumerate(highs) if x == prior)
-    gap = HIGH_WINDOW - last_idx
+    gap = len(window) - last_idx
     closes = [b["close"] for b in window]
     row = common(bars, i)
     row.update({
@@ -108,7 +113,7 @@ def bb_upper(bars, i):
 
 SCREENS = [
     {"id": "high52", "name": "52주 신고가", "fn": high52,
-     "rule": "당일 고가 > 직전 250거래일 최고가"},
+     "rule": "당일 고가 > 직전 52주(364일) 최고가"},
     {"id": "bb_upper", "name": "볼린저밴드 상단 돌파", "fn": bb_upper,
      "rule": "20일·2σ, 전일 종가 ≤ 상단 → 당일 종가 > 상단"},
 ]
@@ -186,7 +191,7 @@ def via_pykrx():
         d -= timedelta(days=1)
         time.sleep(0.2)
     frames.reverse()
-    if len(frames) < HIGH_WINDOW + 2:
+    if len(frames) < 240:
         raise RuntimeError("pykrx 로 충분한 거래일을 받지 못함")
     all_bars = {}
     for date, df in frames:
@@ -209,7 +214,12 @@ def clean_bar(b):
 
 def run(all_bars, source, fails):
     n = len(all_bars)
-    today_kst = datetime.now(KST).date().isoformat()
+    now_kst = datetime.now(KST)
+    # 장 마감(15:30) 뒤 16시 이후에 돌리면 오늘 봉까지 포함, 그 전이면 오늘 봉(장중 미완성)은 제외
+    if now_kst.hour >= 16:
+        today_kst = (now_kst.date() + timedelta(days=1)).isoformat()
+    else:
+        today_kst = now_kst.date().isoformat()
     cnt = Counter(b["date"] for _, bars in all_bars.values() for b in bars)
     trading_days = sorted(d for d, c in cnt.items() if c >= n * 0.5 and d < today_kst)
     recent = trading_days[-HISTORY_DAYS:]
